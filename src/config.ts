@@ -43,7 +43,7 @@ export const CONFIG = {
     takeProfitLevels:    [2.0, 5.0, 10.0],
     takeProfitSellPct:   [0.33, 0.33, 0.34],
     maxDailyLossPct:     0.10,
-    minTokenAgeSecs:     5,
+    minTokenAgeSecs:     2,
     hardStopPct:         0.10,
     trailActivatePct:    0.25,
     trailPct:            0.08,

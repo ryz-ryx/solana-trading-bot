@@ -1,42 +1,80 @@
+import axios from 'axios';
 import { getTokenPrice } from './helius';
-import { getGmgnNewTokens, getGmgnTokenSecurity } from './gmgn';
 import { filterToken } from './rug-filter';
 import { executePaperBuy, checkExitConditions } from './paper-trade';
 import { insertSignal, upsertToken } from './supabase';
 import { notifySignal, notifyError } from './discord';
+import { CONFIG } from './config';
 
-const WALLET_ID = 1; // Sniper uses wallet 1
+const WALLET_ID = 1;
+const key = process.env.HELIUS_API_KEY!;
+const BASE = 'https://api.helius.xyz/v0';
+const PUMP_PROGRAM = CONFIG.sniper.pumpFunProgram;
+
+// Dedup within a single job run
+const processedThisRun = new Set<string>();
+
+const TOKEN_BLACKLIST = new Set([
+  'So11111111111111111111111111111111111111112',   // wSOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // ETH (Wormhole)
+]);
+
+async function getRecentPumpTokens(since: number): Promise<Array<{
+  mint: string;
+  name: string;
+  symbol: string;
+  devWallet: string;
+  timestamp: number;
+}>> {
+  try {
+    const { data } = await axios.get(
+      `${BASE}/addresses/${PUMP_PROGRAM}/transactions`,
+      { params: { 'api-key': key, limit: 100 }, timeout: 15000 }
+    );
+    const seen = new Set<string>();
+    const results: Array<{ mint: string; name: string; symbol: string; devWallet: string; timestamp: number }> = [];
+    for (const tx of data ?? []) {
+      const tsMs = (tx.timestamp ?? 0) * 1000;
+      if (tsMs < since) continue;
+      const transfers = tx.tokenTransfers ?? [];
+      for (const tr of transfers) {
+        const mint = tr.mint;
+        if (!mint || seen.has(mint)) continue;
+        seen.add(mint);
+        results.push({
+          mint,
+          name:      tx.description ?? 'Unknown',
+          symbol:    tr.symbol ?? 'NEW',
+          devWallet: tx.feePayer ?? '',
+          timestamp: tsMs,
+        });
+      }
+    }
+    console.log(`[Sniper] Helius returned ${data?.length ?? 0} txns → ${results.length} unique mints in window`);
+    return results;
+  } catch (e: any) {
+    console.error('[Sniper] Helius fetch error:', e.message);
+    return [];
+  }
+}
 
 async function main() {
   console.log(`[Sniper] Starting scan at ${new Date().toISOString()}`);
-
-  // Use GMGN for richer new token data (includes security metrics)
-  const allNewTokens = await getGmgnNewTokens();
-
-  // Only tokens created in last 2 minutes
-  const since = Date.now() - 120_000;
-  const newTokens = allNewTokens.filter(t => t.createdAt >= since);
-  console.log(`[Sniper] Found ${newTokens.length} tokens in last 2 min (of ${allNewTokens.length} total)`);
+  // 10-minute lookback; Helius limit:100 returns last ~2-9s of pump.fun txns
+  const since = Date.now() - 600_000;
+  const newTokens = await getRecentPumpTokens(since);
+  console.log(`[Sniper] Processing ${newTokens.length} candidate tokens`);
 
   for (const token of newTokens) {
-    // Early reject: honeypot or no liquidity
-    if (token.honeypot) {
-      console.log(`[Sniper] ${token.symbol} — HONEYPOT, skip`);
-      continue;
-    }
-    if (token.liquidityUsd < 5000) {
-      console.log(`[Sniper] ${token.symbol} — low liquidity $${token.liquidityUsd.toFixed(0)}, skip`);
-      continue;
-    }
-    // High insider ratio = coordinated dump
-    if (token.insiderRatio > 0.3) {
-      console.log(`[Sniper] ${token.symbol} — insider ratio ${(token.insiderRatio * 100).toFixed(0)}%, skip`);
-      continue;
-    }
+    if (!token.mint) continue;
+    if (TOKEN_BLACKLIST.has(token.mint)) continue;
+    if (processedThisRun.has(token.mint)) continue;
+    processedThisRun.add(token.mint);
 
-    const ageSeconds = (Date.now() - token.createdAt) / 1000;
+    const ageSeconds = (Date.now() - token.timestamp) / 1000;
 
-    // Run rug filter (Gemini AI scoring)
     const filter = await filterToken({
       mint:      token.mint,
       symbol:    token.symbol,
@@ -46,14 +84,12 @@ async function main() {
       ageSeconds,
     });
 
-    console.log(`[Sniper] ${token.symbol} (${token.mint.slice(0, 8)}...) — rug: ${filter.rugScore} — ${filter.pass ? 'PASS' : 'FAIL'}`);
-
+    console.log(`[Sniper] ${token.symbol} (${token.mint.slice(0, 8)}...) age:${ageSeconds.toFixed(0)}s rug:${filter.rugScore} — ${filter.pass ? 'PASS' : 'FAIL'}`);
     if (!filter.pass) {
       console.log(`  Rejected: ${filter.reasons.join(', ')}`);
       continue;
     }
 
-    // Store token with GMGN enriched data
     await upsertToken({
       mint:         token.mint,
       symbol:       token.symbol,
@@ -61,20 +97,17 @@ async function main() {
       pumpFun:      true,
       devWallet:    token.devWallet,
       rugScore:     filter.rugScore,
-      liquidityUsd: token.liquidityUsd,
-      marketCapUsd: token.marketCapUsd,
+      liquidityUsd: 0,
     });
 
-    // Confidence boosted if LP burned + renounced
-    const securityBonus = (token.lpBurned ? 0.1 : 0) + (token.renounced ? 0.05 : 0);
-    const confidence = Math.min(0.95, (filter.gemini?.confidence ?? 0.5) + securityBonus);
+    const confidence = Math.min(0.95, filter.gemini?.confidence ?? 0.5);
 
     const signalId = await insertSignal({
       strategy:       'sniper',
       tokenMint:      token.mint,
       signalType:     'buy',
       confidence,
-      source:         `pump.fun | liq:$${Math.round(token.liquidityUsd)} insider:${(token.insiderRatio * 100).toFixed(0)}%`,
+      source:         'pump.fun | helius',
       rugScore:       filter.rugScore,
       geminiAnalysis: filter.gemini ?? undefined,
     });
@@ -85,17 +118,16 @@ async function main() {
         tokenMint:      token.mint,
         signalType:     'buy',
         confidence,
-        source:         `pump.fun | liq:$${Math.round(token.liquidityUsd)} | LP burned:${token.lpBurned}`,
+        source:         'pump.fun | helius',
         rugScore:       filter.rugScore,
         geminiAnalysis: filter.gemini ?? undefined,
       },
-      `${token.name} ($${token.marketCapUsd.toFixed(0)} mcap)`
+      token.name
     );
 
-    // Use GMGN price first, fall back to Helius DAS
-    const price = token.priceUsd > 0 ? token.priceUsd : await getTokenPrice(token.mint);
+    const price = await getTokenPrice(token.mint);
     if (price <= 0) {
-      console.log(`[Sniper] Could not get price for ${token.symbol}, skipping`);
+      console.log(`[Sniper] No price for ${token.symbol}, skip`);
       continue;
     }
 
@@ -110,13 +142,20 @@ async function main() {
     });
   }
 
-  // Check exits for existing positions
   await checkExitConditions(WALLET_ID, 'sniper', getTokenPrice);
-
   console.log('[Sniper] Scan complete');
 }
 
-main().catch(async (err) => {
+async function runLoop() {
+  const end = Date.now() + 6 * 60 * 60 * 1000;
+  while (Date.now() < end) {
+    await main();
+    const wait = Math.min(300_000, end - Date.now());
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  }
+}
+
+runLoop().catch(async (err) => {
   console.error('[Sniper] Fatal error:', err);
   await notifyError('Sniper', err.message);
   process.exit(1);
