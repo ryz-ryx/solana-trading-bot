@@ -26,7 +26,7 @@ export const CONFIG = {
   },
   gemini: {
     apiKey: require_env('GEMINI_API_KEY'),
-    model:  'gemini-1.5-flash',
+    model:  'gemini-2.0-flash',
   },
   wallets: {
     // Each workflow only passes the wallet it needs — no hard require at load time

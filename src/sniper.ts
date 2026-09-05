@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getTokenPrice, getTokenLiquidity } from './helius';
+import { getTokenPrice } from './helius';
 import { filterToken } from './rug-filter';
 import { executePaperBuy, checkExitConditions } from './paper-trade';
 import { insertSignal, upsertToken } from './supabase';
@@ -59,11 +59,7 @@ async function main() {
   for (const token of newTokens) {
     const ageSeconds = (Date.now() - token.timestamp) / 1000;
 
-    // Quick liquidity check via DexScreener (already works from GH Actions)
-    const liqUsd = await getTokenLiquidity(token.mint);
-    if (liqUsd < 3000) {
-      console.log(`[Sniper] ${token.symbol} — low liquidity $${liqUsd.toFixed(0)}, skip`);
-      continue;
+      
     }
 
     const filter = await filterToken({
@@ -89,7 +85,7 @@ async function main() {
       pumpFun:      true,
       devWallet:    token.devWallet,
       rugScore:     filter.rugScore,
-      liquidityUsd: liqUsd,
+      liquidityUsd: 0,
     });
 
     const confidence = Math.min(0.95, filter.gemini?.confidence ?? 0.5);
@@ -99,14 +95,14 @@ async function main() {
       tokenMint:      token.mint,
       signalType:     'buy',
       confidence,
-      source:         `pump.fun | liq:$${Math.round(liqUsd)}`,
+      source:         `pump.fun | liq:unknown`,
       rugScore:       filter.rugScore,
       geminiAnalysis: filter.gemini ?? undefined,
     });
 
     await notifySignal(
       { strategy: 'sniper', tokenMint: token.mint, signalType: 'buy', confidence,
-        source: `pump.fun | liq:$${Math.round(liqUsd)}`, rugScore: filter.rugScore,
+        source: `pump.fun | liq:unknown`, rugScore: filter.rugScore,
         geminiAnalysis: filter.gemini ?? undefined },
       `${token.name}`
     );
