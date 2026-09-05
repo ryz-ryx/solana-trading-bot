@@ -11,6 +11,17 @@ const key = process.env.HELIUS_API_KEY!;
 const BASE = 'https://api.helius.xyz/v0';
 const PUMP_PROGRAM = CONFIG.sniper.pumpFunProgram;
 
+// Well-known tokens that appear in pump.fun tx streams but are NOT new launches
+// Mints already processed in this job run — prevents re-evaluation across scans
+const processedThisRun = new Set<string>();
+
+const TOKEN_BLACKLIST = new Set([
+  'So11111111111111111111111111111111111111112',  // wSOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // ETH (Wormhole)
+]);
+
 async function getRecentPumpTokens(since: number): Promise<Array<{
   mint: string;
   name: string;
@@ -58,6 +69,9 @@ async function main() {
 
   for (const token of newTokens) {
     if (!token.mint) continue;
+    if (TOKEN_BLACKLIST.has(token.mint)) continue;
+    if (processedThisRun.has(token.mint)) continue;
+    processedThisRun.add(token.mint);
     const ageSeconds = (Date.now() - token.timestamp) / 1000;
 
     const filter = await filterToken({

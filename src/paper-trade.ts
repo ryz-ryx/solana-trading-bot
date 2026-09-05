@@ -3,6 +3,9 @@ import { insertTrade, upsertPortfolio, getOpenPositions, getDailyPnl } from './s
 import { notifyTrade } from './discord';
 import type { PaperTrade, PortfolioPosition, Strategy } from './types';
 
+// Trailing stop state — persists for the duration of the job run
+const highWaterMarks = new Map<string, number>(); // tokenMint → highest price seen
+
 // Simulate realistic slippage for meme coins
 function simulateSlippage(): number {
   const { slippageMin, slippageMax } = CONFIG.trading;
@@ -162,49 +165,48 @@ export async function checkExitConditions(
 
     const pnlPct = ((currentPrice - pos.avgEntrySol) / pos.avgEntrySol) * 100;
 
-    // Stop loss
-    if (pnlPct <= -CONFIG.trading.stopLossPct * 100) {
-      console.log(`[W${walletId}] STOP LOSS ${pos.tokenSymbol}: ${pnlPct.toFixed(1)}%`);
-      await executePaperSell({
-        walletId, strategy,
-        tokenMint: pos.tokenMint,
-        tokenSymbol: pos.tokenSymbol,
-        currentPriceSol: currentPrice,
-        reason: 'stop_loss',
-      });
+    const cfg = CONFIG.trading as any;
+
+    // ── Hard stop -10% ────────────────────────────────────────────────────
+    if (pnlPct <= -(cfg.hardStopPct ?? 0.10) * 100) {
+      console.log(`[W${walletId}] HARD STOP ${pos.tokenSymbol}: ${pnlPct.toFixed(1)}%`);
+      highWaterMarks.delete(pos.tokenMint);
+      await executePaperSell({ walletId, strategy, tokenMint: pos.tokenMint, tokenSymbol: pos.tokenSymbol, currentPriceSol: currentPrice, reason: 'hard_stop' });
       continue;
     }
 
-    // Time-based exit: sell if not +15% within 120s of buy
-    if (pos.updatedAt) {
-      const ageSecs = (Date.now() - new Date(pos.updatedAt).getTime()) / 1000;
-      if (ageSecs > CONFIG.trading.timeExitSecs && pnlPct < CONFIG.trading.timeExitMinGainPct * 100) {
-        console.log(`[W${walletId}] TIME EXIT ${pos.tokenSymbol}: ${ageSecs.toFixed(0)}s old, ${pnlPct.toFixed(1)}%`);
-        await executePaperSell({
-          walletId, strategy,
-          tokenMint: pos.tokenMint,
-          tokenSymbol: pos.tokenSymbol,
-          currentPriceSol: currentPrice,
-          reason: 'time_exit',
-        });
+    // ── Trailing stop: activate at +25%, trail by 8% ─────────────────────
+    const hwm = highWaterMarks.get(pos.tokenMint) ?? pos.avgEntrySol;
+    if (currentPrice > hwm) highWaterMarks.set(pos.tokenMint, currentPrice);
+    const peakPrice = highWaterMarks.get(pos.tokenMint)!;
+    const gainFromEntry = (peakPrice - pos.avgEntrySol) / pos.avgEntrySol;
+    if (gainFromEntry >= (cfg.trailActivatePct ?? 0.25)) {
+      const drawdown = (peakPrice - currentPrice) / peakPrice;
+      if (drawdown >= (cfg.trailPct ?? 0.08)) {
+        console.log(`[W${walletId}] TRAIL STOP ${pos.tokenSymbol}: peak +${(gainFromEntry*100).toFixed(1)}%, fell ${(drawdown*100).toFixed(1)}%`);
+        highWaterMarks.delete(pos.tokenMint);
+        await executePaperSell({ walletId, strategy, tokenMint: pos.tokenMint, tokenSymbol: pos.tokenSymbol, currentPriceSol: currentPrice, reason: 'trailing_stop' });
         continue;
       }
     }
 
-    // Take profit levels
+    // ── Time-based exit: no +15% gain within 120s ─────────────────────────
+    if (pos.updatedAt) {
+      const ageSecs = (Date.now() - new Date(pos.updatedAt).getTime()) / 1000;
+      if (ageSecs > CONFIG.trading.timeExitSecs && pnlPct < CONFIG.trading.timeExitMinGainPct * 100) {
+        console.log(`[W${walletId}] TIME EXIT ${pos.tokenSymbol}: ${ageSecs.toFixed(0)}s, ${pnlPct.toFixed(1)}%`);
+        highWaterMarks.delete(pos.tokenMint);
+        await executePaperSell({ walletId, strategy, tokenMint: pos.tokenMint, tokenSymbol: pos.tokenSymbol, currentPriceSol: currentPrice, reason: 'time_exit' });
+        continue;
+      }
+    }
+
+    // ── Tiered take-profit ────────────────────────────────────────────────
     const { takeProfitLevels, takeProfitSellPct } = CONFIG.trading;
     for (let i = takeProfitLevels.length - 1; i >= 0; i--) {
-      const targetMultiple = takeProfitLevels[i];
-      if (currentPrice >= pos.avgEntrySol * targetMultiple) {
-        console.log(`[W${walletId}] TAKE PROFIT ${pos.tokenSymbol} at ${targetMultiple}x`);
-        await executePaperSell({
-          walletId, strategy,
-          tokenMint: pos.tokenMint,
-          tokenSymbol: pos.tokenSymbol,
-          currentPriceSol: currentPrice,
-          sellPct: takeProfitSellPct[i],
-          reason: `take_profit_${targetMultiple}x`,
-        });
+      if (currentPrice >= pos.avgEntrySol * takeProfitLevels[i]) {
+        console.log(`[W${walletId}] TAKE PROFIT ${pos.tokenSymbol} at ${takeProfitLevels[i]}x`);
+        await executePaperSell({ walletId, strategy, tokenMint: pos.tokenMint, tokenSymbol: pos.tokenSymbol, currentPriceSol: currentPrice, sellPct: takeProfitSellPct[i], reason: `take_profit_${takeProfitLevels[i]}x` });
         break;
       }
     }

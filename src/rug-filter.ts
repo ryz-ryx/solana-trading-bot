@@ -23,6 +23,9 @@ function quickFilter(token: {
   if (token.liquidityUsd < CONFIG.sniper.minLiquidityUsd) {
     reasons.push(`Liquidity too low: $${token.liquidityUsd}`);
   }
+  if (token.ageSeconds < (CONFIG.trading as any).minTokenAgeSecs) {
+    reasons.push(`Token too young: ${token.ageSeconds}s (min 10s)`);
+  }
   if (token.ageSeconds > CONFIG.sniper.maxTokenAgeSecs) {
     reasons.push(`Token too old: ${token.ageSeconds}s`);
   }
@@ -61,9 +64,11 @@ export async function filterToken(token: {
 }): Promise<FilterResult> {
   // 1. Fetch live liquidity
   const liquidityUsd = await getTokenLiquidity(token.mint);
+  // pump.fun bonding curve tokens always show $0 DEX liquidity — use neutral value for scoring
+  const effectiveLiquidity = (token.pumpFun && liquidityUsd === 0) ? 5000 : liquidityUsd;
 
   // 2. Quick sanity checks (age, liquidity, mint format)
-  const quick = quickFilter({ ...token, liquidityUsd });
+  const quick = quickFilter({ ...token, liquidityUsd: effectiveLiquidity });
   if (!quick.pass) {
     return { pass: false, rugScore: 100, reasons: quick.reasons, gemini: null };
   }
@@ -83,15 +88,23 @@ export async function filterToken(token: {
     return { pass: false, rugScore: 100, reasons: hard.reasons, gemini: null };
   }
 
-  // 4. Gemini AI analysis (only if hard filter passed)
-  const gemini = await analyzeToken({ ...token, liquidityUsd });
+  // 4. Gemini AI analysis — pass computed metrics from hard filter
+  const top10Raw = hard.checks.top10_pct ?? '';
+  const devRaw   = hard.checks.dev_pct   ?? '';
+  const txCount  = 0; // placeholder — extend if tx count plumbed through
+  const metrics  = {
+    top10Pct: parseFloat(top10Raw) || 0,
+    devPct:   parseFloat(devRaw)   || 0,
+    txCount,
+  };
+  const gemini = await analyzeToken({ ...token, liquidityUsd, metrics });
 
   // 5. Final rug score
-  const rugScore = calculateRugScore(liquidityUsd, token.ageSeconds, gemini.rugRisk);
+  const rugScore = calculateRugScore(effectiveLiquidity, token.ageSeconds, gemini.rugRisk);
 
   const pass = rugScore <= CONFIG.sniper.maxRugScore
     && gemini.recommendation === 'BUY'
-    && gemini.score >= 80;
+    && gemini.score >= 60;
 
   const reasons: string[] = [];
   if (rugScore > CONFIG.sniper.maxRugScore) reasons.push(`Rug score too high: ${rugScore}`);

@@ -120,13 +120,13 @@ export async function hardFilter(params: {
     }
 
     // 4. Top 10 holder concentration (skip if token is < 30s old — holders haven't spread yet)
-    if (ageSeconds >= 30 && supply > 0) {
+    if (supply > 0) {
       const holders = await getTopHolders(mint);
       if (holders.length > 0) {
         const top10Total = holders.slice(0, 10).reduce((s, h) => s + h.amount, 0);
         const top10Pct   = (top10Total / supply) * 100;
         checks.top10_pct = `${top10Pct.toFixed(1)}%`;
-        if (top10Pct > 25) {
+        if (top10Pct > 30) {
           reasons.push(`Top 10 holders own ${top10Pct.toFixed(1)}% of supply (>25%)`);
         }
 
@@ -149,8 +149,6 @@ export async function hardFilter(params: {
       } else {
         checks.top10_pct = 'no_holder_data';
       }
-    } else {
-      checks.top10_pct = `skipped_age_${ageSeconds.toFixed(0)}s`;
     }
 
     return { pass: reasons.length === 0, reasons, checks };

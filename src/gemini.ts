@@ -46,6 +46,7 @@ export async function analyzeToken(token: {
   devWallet: string;
   pumpFun: boolean;
   ageSeconds: number;
+  metrics?: { top10Pct: number; devPct: number; txCount: number };
 }): Promise<GeminiAnalysis> {
   const SKIP_FALLBACK: GeminiAnalysis = {
     score:          30,
@@ -69,37 +70,44 @@ export async function analyzeToken(token: {
     reasoning:      'Gemini unavailable',
   };
 
-  const prompt = `You are a Solana meme coin risk evaluator. Respond ONLY in JSON with no extra text.
+  const m = token.metrics;
+  const volLiqRatio = (m && token.liquidityUsd > 0) ? (m.txCount * 0.05 / token.liquidityUsd).toFixed(2) : 'N/A';
+  const prompt = `You are a Solana meme coin sniper evaluating a pump.fun launch.
+Respond ONLY with valid JSON — no markdown, no extra text.
 
-Token:
-- Mint: ${token.mint}
-- Symbol: ${token.symbol}
-- Name: ${token.name}
-- Liquidity USD: $${token.liquidityUsd}
-- Dev Wallet: ${token.devWallet}
-- pump.fun: ${token.pumpFun}
-- Age: ${token.ageSeconds}s
+TOKEN:
+  symbol: ${token.symbol}
+  age: ${token.ageSeconds}s
+  platform: ${token.pumpFun ? 'pump.fun bonding curve' : 'DEX'}
+  DEX liquidity: $${token.liquidityUsd} ${token.pumpFun ? '(bonding curve — $0 DEX liquidity is NORMAL)' : ''}
+  top-10 holders: ${m ? m.top10Pct.toFixed(1) + '%' : 'unknown'}
+  dev wallet %: ${m ? m.devPct.toFixed(1) + '%' : 'unknown'}
+  recent tx count: ${m ? m.txCount : 'unknown'}
+  vol/liq ratio: ${volLiqRatio}
 
-INSTANT FAIL (score=0): mint authority enabled, freeze authority enabled, liquidity<$5000, suspicious bundling.
-PASS (score>=80): locked liquidity, dev holding<5%, top10 holders<20%, active social narrative.
+INSTANT FAIL → riskScore=95: freeze authority set, bundling (3+ wallets each >10%), dev>10%.
+GREEN SIGNALS → riskScore<40: dev<3%, top10<20%, active tx flow, pump.fun bonding curve active.
 
-Return exactly:
-{"score":<0-100>,"recommendation":"BUY" or "SKIP","reason":"<15 words max>","red_flags":["flag1","flag2"]}`;
+Return exactly this JSON:
+{"decision":"BUY" or "SKIP","riskScore":<0-100 lower=safer>,"reasoning":"<20 words>","flags":["flag1"]}`;
 
   try {
     const raw = await ask(analysisModel, prompt, 2500);
     const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    const score: number = Math.min(100, Math.max(0, parsed.score ?? 40));
-    const rec: 'BUY' | 'SKIP' = parsed.recommendation === 'BUY' ? 'BUY' : 'SKIP';
+    // Support both new format {decision,riskScore,reasoning,flags} and legacy
+    const rawScore: number = parsed.riskScore ?? (100 - (parsed.score ?? 40));
+    const score: number = Math.min(100, Math.max(0, 100 - rawScore)); // convert riskScore → quality score
+    const rec: 'BUY' | 'SKIP' = (parsed.decision === 'BUY' || parsed.recommendation === 'BUY') ? 'BUY' : 'SKIP';
+    const reason = parsed.reasoning ?? parsed.reason ?? 'No reason';
     return {
       score,
       recommendation: rec,
-      reason:     parsed.reason   ?? 'No reason',
-      red_flags:  Array.isArray(parsed.red_flags) ? parsed.red_flags : [],
+      reason,
+      red_flags:  Array.isArray(parsed.flags) ? parsed.flags : (Array.isArray(parsed.red_flags) ? parsed.red_flags : []),
       rugRisk:    100 - score,
       confidence: score / 100,
       sentiment:  rec === 'BUY' ? 'bullish' : 'bearish',
-      reasoning:  parsed.reason ?? 'No reason',
+      reasoning:  reason,
     };
   } catch {
     // If Gemini is down, use BUY fallback so new tokens aren't all blocked
