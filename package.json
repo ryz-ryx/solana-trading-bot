@@ -4,9 +4,9 @@
   "description": "Solana meme coin paper trading bot",
   "scripts": {
     "build": "tsc",
-    "sniper": "npx ts-node src/sniper.ts",
-    "copy-trade": "npx ts-node src/copy-trade.ts",
-    "kol-tracker": "npx ts-node src/kol-tracker.ts",
+    "sniper": "npx ts-node -r dotenv/config src/sniper.ts",
+    "copy-trade": "npx ts-node -r dotenv/config src/copy-trade.ts",
+    "kol-tracker": "npx ts-node -r dotenv/config src/kol-tracker.ts",
     "backtest": "npx ts-node src/backtest.ts",
     "monte-carlo": "npx ts-node src/monte-carlo.ts",
     "daily-report": "npx ts-node src/daily-report.ts"
