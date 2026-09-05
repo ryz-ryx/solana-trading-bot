@@ -88,14 +88,23 @@ export async function filterToken(token: {
     return { pass: false, rugScore: 100, reasons: hard.reasons, gemini: null };
   }
 
-  // 4. Gemini AI analysis — pass computed metrics from hard filter
+  // 4. Gemini AI analysis
+  // Skip for pump.fun tokens < 60s old — they have no metadata (symbol/name = "NEW/Unknown")
+  // and Gemini can't evaluate them. Hard filter is sufficient at this age.
+  const isNewPumpToken = token.pumpFun && token.ageSeconds < 60;
+
+  if (isNewPumpToken) {
+    // Hard filter passed — that's our signal. Score based on age/liquidity only.
+    const rugScore = calculateRugScore(effectiveLiquidity, token.ageSeconds, 0);
+    return { pass: rugScore <= CONFIG.sniper.maxRugScore, rugScore, reasons: [], gemini: null };
+  }
+
   const top10Raw = hard.checks.top10_pct ?? '';
   const devRaw   = hard.checks.dev_pct   ?? '';
-  const txCount  = 0; // placeholder — extend if tx count plumbed through
   const metrics  = {
     top10Pct: parseFloat(top10Raw) || 0,
     devPct:   parseFloat(devRaw)   || 0,
-    txCount,
+    txCount:  0,
   };
   const gemini = await analyzeToken({ ...token, liquidityUsd, metrics });
 
