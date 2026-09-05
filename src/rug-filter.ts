@@ -91,13 +91,13 @@ export async function filterToken(token: {
   const rugScore = calculateRugScore(liquidityUsd, token.ageSeconds, gemini.rugRisk);
 
   const pass = rugScore <= CONFIG.sniper.maxRugScore
-    && gemini.recommendation === 'buy'
-    && gemini.confidence >= 0.5;
+    && gemini.recommendation === 'BUY'
+    && gemini.score >= 80;
 
   const reasons: string[] = [];
   if (rugScore > CONFIG.sniper.maxRugScore) reasons.push(`Rug score too high: ${rugScore}`);
-  if (gemini.recommendation !== 'buy') reasons.push(`Gemini says: ${gemini.recommendation}`);
-  if (gemini.confidence < 0.5) reasons.push(`Low confidence: ${gemini.confidence}`);
+  if (gemini.recommendation !== 'BUY') reasons.push(`Gemini says: SKIP | flags: ${gemini.red_flags.join(', ')}`);
+  
 
   return { pass, rugScore, reasons, gemini };
 }

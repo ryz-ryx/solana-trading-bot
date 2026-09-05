@@ -51,11 +51,15 @@ export interface PortfolioPosition {
 }
 
 export interface GeminiAnalysis {
-  rugRisk: number;       // 0-100
-  sentiment: string;     // 'bullish' | 'bearish' | 'neutral'
-  reasoning: string;
-  recommendation: 'buy' | 'skip' | 'sell';
-  confidence: number;    // 0-1
+  score:          number;       // 0-100 higher = better
+  recommendation: 'BUY' | 'SKIP';
+  reason:         string;
+  red_flags:      string[];
+  // compat
+  rugRisk:        number;       // 100 - score
+  confidence:     number;       // score / 100
+  sentiment:      string;
+  reasoning:      string;
 }
 
 export interface PumpFunEvent {
