@@ -1,4 +1,5 @@
-import { getRecentPumpFunTokens, getTokenPrice } from './helius';
+import { getTokenPrice } from './helius';
+import { getGmgnNewTokens, getGmgnTokenSecurity } from './gmgn';
 import { filterToken } from './rug-filter';
 import { executePaperBuy, checkExitConditions } from './paper-trade';
 import { insertSignal, upsertToken } from './supabase';
@@ -9,15 +10,33 @@ const WALLET_ID = 1; // Sniper uses wallet 1
 async function main() {
   console.log(`[Sniper] Starting scan at ${new Date().toISOString()}`);
 
-  // Scan last 2 minutes of pump.fun launches
+  // Use GMGN for richer new token data (includes security metrics)
+  const allNewTokens = await getGmgnNewTokens();
+
+  // Only tokens created in last 2 minutes
   const since = Date.now() - 120_000;
-  const newTokens = await getRecentPumpFunTokens(since);
-  console.log(`[Sniper] Found ${newTokens.length} new tokens`);
+  const newTokens = allNewTokens.filter(t => t.createdAt >= since);
+  console.log(`[Sniper] Found ${newTokens.length} tokens in last 2 min (of ${allNewTokens.length} total)`);
 
   for (const token of newTokens) {
-    const ageSeconds = (Date.now() - token.timestamp) / 1000;
+    // Early reject: honeypot or no liquidity
+    if (token.honeypot) {
+      console.log(`[Sniper] ${token.symbol} — HONEYPOT, skip`);
+      continue;
+    }
+    if (token.liquidityUsd < 5000) {
+      console.log(`[Sniper] ${token.symbol} — low liquidity $${token.liquidityUsd.toFixed(0)}, skip`);
+      continue;
+    }
+    // High insider ratio = coordinated dump
+    if (token.insiderRatio > 0.3) {
+      console.log(`[Sniper] ${token.symbol} — insider ratio ${(token.insiderRatio * 100).toFixed(0)}%, skip`);
+      continue;
+    }
 
-    // Run rug filter
+    const ageSeconds = (Date.now() - token.createdAt) / 1000;
+
+    // Run rug filter (Gemini AI scoring)
     const filter = await filterToken({
       mint:      token.mint,
       symbol:    token.symbol,
@@ -34,23 +53,28 @@ async function main() {
       continue;
     }
 
-    // Store token
+    // Store token with GMGN enriched data
     await upsertToken({
-      mint:      token.mint,
-      symbol:    token.symbol,
-      name:      token.name,
-      pumpFun:   true,
-      devWallet: token.devWallet,
-      rugScore:  filter.rugScore,
+      mint:         token.mint,
+      symbol:       token.symbol,
+      name:         token.name,
+      pumpFun:      true,
+      devWallet:    token.devWallet,
+      rugScore:     filter.rugScore,
+      liquidityUsd: token.liquidityUsd,
+      marketCapUsd: token.marketCapUsd,
     });
 
-    // Create signal
+    // Confidence boosted if LP burned + renounced
+    const securityBonus = (token.lpBurned ? 0.1 : 0) + (token.renounced ? 0.05 : 0);
+    const confidence = Math.min(0.95, (filter.gemini?.confidence ?? 0.5) + securityBonus);
+
     const signalId = await insertSignal({
       strategy:       'sniper',
       tokenMint:      token.mint,
       signalType:     'buy',
-      confidence:     filter.gemini?.confidence ?? 0.5,
-      source:         `pump.fun launch`,
+      confidence,
+      source:         `pump.fun | liq:$${Math.round(token.liquidityUsd)} insider:${(token.insiderRatio * 100).toFixed(0)}%`,
       rugScore:       filter.rugScore,
       geminiAnalysis: filter.gemini ?? undefined,
     });
@@ -60,29 +84,29 @@ async function main() {
         strategy:       'sniper',
         tokenMint:      token.mint,
         signalType:     'buy',
-        confidence:     filter.gemini?.confidence ?? 0.5,
-        source:         'pump.fun launch',
+        confidence,
+        source:         `pump.fun | liq:$${Math.round(token.liquidityUsd)} | LP burned:${token.lpBurned}`,
         rugScore:       filter.rugScore,
         geminiAnalysis: filter.gemini ?? undefined,
       },
-      token.name
+      `${token.name} ($${token.marketCapUsd.toFixed(0)} mcap)`
     );
 
-    // Get current price and execute paper buy
-    const price = await getTokenPrice(token.mint);
+    // Use GMGN price first, fall back to Helius DAS
+    const price = token.priceUsd > 0 ? token.priceUsd : await getTokenPrice(token.mint);
     if (price <= 0) {
       console.log(`[Sniper] Could not get price for ${token.symbol}, skipping`);
       continue;
     }
 
     await executePaperBuy({
-      walletId:   WALLET_ID,
-      strategy:   'sniper',
-      tokenMint:  token.mint,
-      tokenSymbol: token.symbol,
+      walletId:        WALLET_ID,
+      strategy:        'sniper',
+      tokenMint:       token.mint,
+      tokenSymbol:     token.symbol,
       currentPriceSol: price,
-      signalId:   signalId ?? undefined,
-      confidence: filter.gemini?.confidence ?? 0.5,
+      signalId:        signalId ?? undefined,
+      confidence,
     });
   }
 
