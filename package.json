@@ -1,0 +1,27 @@
+{
+  "name": "solana-trading-bot",
+  "version": "1.0.0",
+  "description": "Solana meme coin paper trading bot",
+  "scripts": {
+    "build": "tsc",
+    "sniper": "ts-node src/sniper.ts",
+    "copy-trade": "ts-node src/copy-trade.ts",
+    "kol-tracker": "ts-node src/kol-tracker.ts",
+    "backtest": "ts-node src/backtest.ts",
+    "monte-carlo": "ts-node src/monte-carlo.ts",
+    "daily-report": "ts-node src/daily-report.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@solana/web3.js": "^1.98.0",
+    "@supabase/supabase-js": "^2.49.0",
+    "axios": "^1.7.0",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.0"
+  }
+}
