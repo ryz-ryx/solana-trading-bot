@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOL Trading Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.js"></script>
+<style>
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --border: #1e1e1e;
+    --border-bright: #2e2e2e;
+    --text: #e4e4e4;
+    --text-dim: #4a4a4a;
+    --text-mid: #888888;
+    --green: #00ff41;
+    --green-dim: #004d14;
+    --red: #ff3b3b;
+    --red-dim: #4d0000;
+    --amber: #ffb800;
+    --blue: #4da6ff;
+    --font: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .header { border-bottom: 1px solid var(--border-bright); padding-bottom: 16px; margin-bottom: 20px; }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+  .logo { color: var(--green); font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; }
+  .logo-title { font-size: 18px; font-weight: 700; letter-spacing: 0.05em; color: var(--text); margin-top: 2px; }
+  .logo-title span { color: var(--green); }
+  .header-meta { text-align: right; color: var(--text-mid); font-size: 11px; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--text-dim); }
+  .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.offline { background: var(--red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .cursor { display: inline-block; width: 8px; height: 14px; background: var(--green); vertical-align: middle; animation: blink 1.1s step-end infinite; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 20px; }
+  .stat-tile { background: var(--surface); padding: 16px 18px; }
+  .stat-label { font-size: 10px; letter-spacing: 0.12em; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px; }
+  .stat-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat-value.pos { color: var(--green); }
+  .stat-value.neg { color: var(--red); }
+  .stat-value.neu { color: var(--text); }
+  .stat-sub { font-size: 10px; color: var(--text-mid); margin-top: 4px; }
+  .strategy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .strategy-card { border: 1px solid var(--border-bright); padding: 14px 16px; }
+  .strategy-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .strategy-name { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--green); }
+  .strategy-badge { font-size: 10px; padding: 2px 7px; border: 1px solid var(--border-bright); color: var(--text-mid); }
+  .strategy-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
+  .strategy-row-label { color: var(--text-mid); }
+  .strategy-row-val { font-variant-numeric: tabular-nums; }
+  .section { margin-bottom: 20px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-bright); margin-bottom: 1px; }
+  .section-title { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-mid); }
+  .section-count { font-size: 10px; color: var(--text-dim); }
+  .term-table { width: 100%; border-collapse: collapse; }
+  .term-table th { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-weight: 400; }
+  .term-table td { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; vertical-align: middle; }
+  .term-table tr:hover td { background: var(--surface); }
+  .term-table .empty-row td { text-align: center; color: var(--text-dim); padding: 24px; }
+  .pill { display: inline-block; font-size: 10px; padding: 2px 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .pill-buy  { color: var(--green); border: 1px solid var(--green-dim); }
+  .pill-sell { color: var(--red);   border: 1px solid var(--red-dim); }
+  .pill-sniper { color: var(--blue); border: 1px solid #1a3a5c; }
+  .pill-copy-trade { color: var(--amber); border: 1px solid #3d2c00; }
+  .pill-kol-tracker { color: #c084fc; border: 1px solid #3b1f5c; }
+  .pos-text { color: var(--green); }
+  .neg-text { color: var(--red); }
+  .dim-text { color: var(--text-mid); }
+  .footer { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 20px; display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
+  #refresh-countdown { color: var(--green); }
+  @media (max-width: 768px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .strategy-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="logo">// SOL PAPER TRADING SYSTEM v1.0</div>
+        <div class="logo-title">TRADING <span>TERMINAL</span> <span class="cursor"></span></div>
+      </div>
+      <div class="header-meta">
+        <div><span class="status-dot" id="conn-dot"></span><span id="conn-status">CONNECTING...</span></div>
+        <div id="last-update" style="margin-top:4px">──</div>
+        <div style="margin-top:4px;color:var(--text-dim)">PAPER TRADE MODE</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-tile">
+      <div class="stat-label">Total Realized PnL</div>
+      <div class="stat-value neu" id="total-pnl">──</div>
+      <div class="stat-sub" id="total-pnl-sub">loading...</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Overall Win Rate</div>
+      <div class="stat-value neu" id="win-rate">──</div>
+      <div class="stat-sub" id="win-rate-sub">loading...</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Open Positions</div>
+      <div class="stat-value neu" id="open-pos">──</div>
+      <div class="stat-sub" id="open-pos-sub">loading...</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-label">Total Trades</div>
+      <div class="stat-value neu" id="total-trades">──</div>
+      <div class="stat-sub" id="total-trades-sub">loading...</div>
+    </div>
+  </div>
+
+  <div class="strategy-grid">
+    <div class="strategy-card">
+      <div class="strategy-card-header">
+        <span class="strategy-name">// SNIPER</span>
+        <span class="strategy-badge">W1</span>
+      </div>
+      <div id="stats-sniper"><div class="dim-text" style="font-size:11px">loading...</div></div>
+    </div>
+    <div class="strategy-card">
+      <div class="strategy-card-header">
+        <span class="strategy-name">// COPY TRADE</span>
+        <span class="strategy-badge">W2</span>
+      </div>
+      <div id="stats-copy-trade"><div class="dim-text" style="font-size:11px">loading...</div></div>
+    </div>
+    <div class="strategy-card">
+      <div class="strategy-card-header">
+        <span class="strategy-name">// KOL TRACKER</span>
+        <span class="strategy-badge">W3</span>
+      </div>
+      <div id="stats-kol-tracker"><div class="dim-text" style="font-size:11px">loading...</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">// OPEN POSITIONS</span>
+      <span class="section-count" id="pos-count">0 positions</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="term-table">
+        <thead><tr><th>TOKEN</th><th>STRATEGY</th><th>AMOUNT</th><th>ENTRY (SOL)</th><th>WALLET</th></tr></thead>
+        <tbody id="positions-body"><tr class="empty-row"><td colspan="5">loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">// TRADE LOG</span>
+      <span class="section-count" id="trade-count">0 trades</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="term-table">
+        <thead><tr><th>TIME</th><th>TOKEN</th><th>ACTION</th><th>STRATEGY</th><th>AMOUNT (SOL)</th><th>PnL (SOL)</th><th>PnL %</th></tr></thead>
+        <tbody id="trades-body"><tr class="empty-row"><td colspan="7">loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>SOL PAPER TRADING TERMINAL // HELIUS + GMGN + GEMINI</span>
+    <span>AUTO-REFRESH IN <span id="refresh-countdown">30</span>s</span>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL  = 'https://luyqzjtudahhijvawbol.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1eXF6anR1ZGFoaGlqdmF3Ym9sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1OTQ0MDksImV4cCI6MjEwNDE3MDQwOX0.VuW_Esj58kPmvWF8Mrc-AOqEc260e4YL7maQg24bOHw';
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let countdown = 30;
+let timer;
+
+async function loadAll() {
+  try {
+    const [tradesRes, posRes] = await Promise.all([
+      db.from('paper_trades').select('*').order('created_at', {ascending: false}).limit(300),
+      db.from('portfolio').select('*').gt('amount', 0),
+    ]);
+    if (tradesRes.error) throw tradesRes.error;
+    renderStats(tradesRes.data || []);
+    renderTrades(tradesRes.data || []);
+    renderPositions(posRes.data || []);
+    setStatus('online', 'CONNECTED');
+  } catch(e) {
+    setStatus('offline', 'ERROR: ' + e.message.slice(0, 35));
+  }
+}
+
+function setStatus(state, text) {
+  document.getElementById('conn-dot').className = 'status-dot ' + state;
+  document.getElementById('conn-status').textContent = text;
+  document.getElementById('last-update').textContent =
+    'UPDATED ' + new Date().toLocaleTimeString('en-US', {hour12:false});
+}
+
+function renderStats(trades) {
+  const sells = trades.filter(t => t.action === 'sell');
+  const wins  = sells.filter(t => (t.pnl_sol || 0) > 0);
+  const totalPnl = sells.reduce((s, t) => s + (t.pnl_sol || 0), 0);
+  const wr = sells.length > 0 ? (wins.length / sells.length * 100) : 0;
+
+  const pEl = document.getElementById('total-pnl');
+  pEl.textContent = (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(4) + ' SOL';
+  pEl.className = 'stat-value ' + (totalPnl > 0 ? 'pos' : totalPnl < 0 ? 'neg' : 'neu');
+  document.getElementById('total-pnl-sub').textContent = sells.length + ' closed trades';
+
+  const wEl = document.getElementById('win-rate');
+  wEl.textContent = wr.toFixed(1) + '%';
+  wEl.className = 'stat-value ' + (wr >= 60 ? 'pos' : wr >= 40 ? 'neu' : 'neg');
+  document.getElementById('win-rate-sub').textContent = wins.length + '/' + sells.length + ' wins';
+
+  document.getElementById('total-trades').textContent = trades.length;
+  document.getElementById('total-trades-sub').textContent =
+    trades.filter(t=>t.action==='buy').length + ' buys · ' + sells.length + ' sells';
+
+  ['sniper','copy-trade','kol-tracker'].forEach(strat => {
+    const st = trades.filter(t => t.strategy === strat);
+    const ss = st.filter(t => t.action === 'sell');
+    const sw = ss.filter(t => (t.pnl_sol||0) > 0);
+    const sp = ss.reduce((s,t) => s+(t.pnl_sol||0), 0);
+    const swr = ss.length > 0 ? (sw.length/ss.length*100) : 0;
+    const el = document.getElementById('stats-' + strat);
+    if (!st.length) { el.innerHTML = '<div class="dim-text" style="font-size:11px">no trades yet</div>'; return; }
+    el.innerHTML = [
+      row('TRADES', st.length),
+      row('WIN RATE', ss.length > 0 ? swr.toFixed(1)+'%' : '─', swr >= 50 ? 'pos-text' : ''),
+      row('REALIZED PnL', (sp>=0?'+':'')+sp.toFixed(4)+' SOL', sp>0?'pos-text':sp<0?'neg-text':''),
+      row('WINS/SELLS', sw.length+'/'+ss.length),
+    ].join('');
+  });
+}
+
+function row(label, val, cls='') {
+  return `<div class="strategy-row"><span class="strategy-row-label">${label}</span><span class="strategy-row-val ${cls}">${val}</span></div>`;
+}
+
+function renderTrades(trades) {
+  const tbody = document.getElementById('trades-body');
+  document.getElementById('trade-count').textContent = trades.length + ' trades';
+  if (!trades.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">no trades yet — bot is scanning</td></tr>';
+    return;
+  }
+  tbody.innerHTML = trades.slice(0, 50).map(t => {
+    const pnl    = t.pnl_sol != null ? ((t.pnl_sol>=0?'+':'')+Number(t.pnl_sol).toFixed(4)) : '─';
+    const pnlPct = t.pnl_pct != null ? ((t.pnl_pct>=0?'+':'')+Number(t.pnl_pct).toFixed(1)+'%') : '─';
+    const cls    = (t.pnl_sol||0) > 0 ? 'pos-text' : (t.pnl_sol||0) < 0 ? 'neg-text' : '';
+    const slug   = (t.strategy||'').replace(/_/g,'-');
+    const time   = new Date(t.created_at).toLocaleString('en-US',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `<tr>
+      <td class="dim-text">${time}</td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.token_symbol||(t.token_mint?.slice(0,8)+'...')||'─'}</td>
+      <td><span class="pill pill-${t.action}">${(t.action||'').toUpperCase()}</span></td>
+      <td><span class="pill pill-${slug}">${slug.toUpperCase()}</span></td>
+      <td>${Number(t.amount_sol||0).toFixed(4)}</td>
+      <td class="${cls}">${pnl}</td>
+      <td class="${cls}">${pnlPct}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPositions(positions) {
+  const tbody = document.getElementById('positions-body');
+  document.getElementById('pos-count').textContent = positions.length + ' positions';
+  document.getElementById('open-pos').textContent  = positions.length;
+  document.getElementById('open-pos-sub').textContent = positions.length + ' tokens held';
+  if (!positions.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">no open positions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = positions.map(p => `<tr>
+    <td>${p.token_symbol||(p.token_mint?.slice(0,8)+'...')||'─'}</td>
+    <td>─</td>
+    <td>${Number(p.amount||0).toFixed(2)}</td>
+    <td>${Number(p.avg_entry_sol||0).toFixed(6)}</td>
+    <td class="dim-text">W${p.wallet_id||'?'}</td>
+  </tr>`).join('');
+}
+
+function startCountdown() {
+  countdown = 30;
+  clearInterval(timer);
+  timer = setInterval(() => {
+    countdown--;
+    document.getElementById('refresh-countdown').textContent = countdown;
+    if (countdown <= 0) { countdown = 30; loadAll(); }
+  }, 1000);
+}
+
+loadAll();
+startCountdown();
+</script>
+</body>
+</html>
