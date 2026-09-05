@@ -21,7 +21,7 @@ jobs:
         env:
           HELIUS_API_KEY:      ${{ secrets.HELIUS_API_KEY }}
           SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
       - name: Run Monte Carlo
@@ -29,6 +29,6 @@ jobs:
         env:
           HELIUS_API_KEY:      ${{ secrets.HELIUS_API_KEY }}
           SUPABASE_URL:        ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
