@@ -119,15 +119,17 @@ export async function hardFilter(params: {
       }
     }
 
-    // 4. Top 10 holder concentration (skip if token is < 30s old — holders haven't spread yet)
-    if (supply > 0) {
+    // 4. Top 10 holder concentration
+    // Skip for pump.fun tokens < 60s old: bonding curve holds 80-100% of supply at launch
+    // (that's normal — supply distributes as trades happen)
+    if (supply > 0 && !(pumpFun && ageSeconds < 60)) {
       const holders = await getTopHolders(mint);
       if (holders.length > 0) {
         const top10Total = holders.slice(0, 10).reduce((s, h) => s + h.amount, 0);
         const top10Pct   = (top10Total / supply) * 100;
         checks.top10_pct = `${top10Pct.toFixed(1)}%`;
         if (top10Pct > 30) {
-          reasons.push(`Top 10 holders own ${top10Pct.toFixed(1)}% of supply (>25%)`);
+          reasons.push(`Top 10 holders own ${top10Pct.toFixed(1)}% of supply (>30%)`);
         }
 
         // 5. Dev wallet holding
@@ -149,6 +151,8 @@ export async function hardFilter(params: {
       } else {
         checks.top10_pct = 'no_holder_data';
       }
+    } else if (pumpFun && ageSeconds < 60) {
+      checks.top10_pct = 'skipped_new_pump_token';
     }
 
     return { pass: reasons.length === 0, reasons, checks };
