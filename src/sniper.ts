@@ -11,9 +11,12 @@ const key = process.env.HELIUS_API_KEY!;
 const BASE = 'https://api.helius.xyz/v0';
 const PUMP_PROGRAM = CONFIG.sniper.pumpFunProgram;
 
-// Query Helius for recent pump.fun program transactions (no type filter = all txns)
 async function getRecentPumpTokens(since: number): Promise<Array<{
-  mint: string; name: string; symbol: string; devWallet: string; timestamp: number;
+  mint: string;
+  name: string;
+  symbol: string;
+  devWallet: string;
+  timestamp: number;
 }>> {
   try {
     const { data } = await axios.get(
@@ -21,11 +24,10 @@ async function getRecentPumpTokens(since: number): Promise<Array<{
       { params: { 'api-key': key, limit: 100 }, timeout: 15000 }
     );
     const seen = new Set<string>();
-    const results: any[] = [];
+    const results: Array<{ mint: string; name: string; symbol: string; devWallet: string; timestamp: number }> = [];
     for (const tx of data ?? []) {
       const tsMs = (tx.timestamp ?? 0) * 1000;
       if (tsMs < since) continue;
-      // Look for token transfers that initialise a new mint
       const transfers = tx.tokenTransfers ?? [];
       for (const tr of transfers) {
         const mint = tr.mint;
@@ -50,17 +52,13 @@ async function getRecentPumpTokens(since: number): Promise<Array<{
 
 async function main() {
   console.log(`[Sniper] Starting scan at ${new Date().toISOString()}`);
-
-  // 10-min window to ensure we don't miss tokens between 5-min cron runs
   const since = Date.now() - 600_000;
   const newTokens = await getRecentPumpTokens(since);
   console.log(`[Sniper] Processing ${newTokens.length} tokens`);
 
   for (const token of newTokens) {
+    if (!token.mint) continue;
     const ageSeconds = (Date.now() - token.timestamp) / 1000;
-
-      
-    }
 
     const filter = await filterToken({
       mint:      token.mint,
@@ -72,7 +70,6 @@ async function main() {
     });
 
     console.log(`[Sniper] ${token.symbol} (${token.mint.slice(0, 8)}...) — rug: ${filter.rugScore} — ${filter.pass ? 'PASS' : 'FAIL'}`);
-
     if (!filter.pass) {
       console.log(`  Rejected: ${filter.reasons.join(', ')}`);
       continue;
@@ -95,16 +92,22 @@ async function main() {
       tokenMint:      token.mint,
       signalType:     'buy',
       confidence,
-      source:         `pump.fun | liq:unknown`,
+      source:         'pump.fun | liq:unknown',
       rugScore:       filter.rugScore,
       geminiAnalysis: filter.gemini ?? undefined,
     });
 
     await notifySignal(
-      { strategy: 'sniper', tokenMint: token.mint, signalType: 'buy', confidence,
-        source: `pump.fun | liq:unknown`, rugScore: filter.rugScore,
-        geminiAnalysis: filter.gemini ?? undefined },
-      `${token.name}`
+      {
+        strategy:       'sniper',
+        tokenMint:      token.mint,
+        signalType:     'buy',
+        confidence,
+        source:         'pump.fun | liq:unknown',
+        rugScore:       filter.rugScore,
+        geminiAnalysis: filter.gemini ?? undefined,
+      },
+      token.name
     );
 
     const price = await getTokenPrice(token.mint);
