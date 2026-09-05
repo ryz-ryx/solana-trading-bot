@@ -157,3 +157,46 @@ export async function getGmgnSmartWallets(limit = 20): Promise<Array<{
     return [];
   }
 }
+
+// ── DexScreener fallback: new pump.fun pairs (works from datacenter IPs) ──────
+export async function getDexScreenerNewPairs(sinceMs: number): Promise<Array<{
+  mint: string; symbol: string; name: string;
+  priceUsd: number; liquidityUsd: number; marketCapUsd: number;
+  createdAt: number; devWallet: string;
+  insiderRatio: number; bundleRatio: number; top10Pct: number;
+  lpBurned: boolean; renounced: boolean; honeypot: boolean;
+}>> {
+  try {
+    const { data } = await axios.get(
+      'https://api.dexscreener.com/latest/dex/search',
+      { params: { q: 'pump' }, timeout: 10000 }
+    );
+    const pairs = data?.pairs ?? [];
+    return pairs
+      .filter((p: any) =>
+        p.chainId === 'solana' &&
+        p.pairCreatedAt &&
+        p.pairCreatedAt >= sinceMs &&
+        p.baseToken?.address
+      )
+      .map((p: any) => ({
+        mint:         p.baseToken.address,
+        symbol:       p.baseToken.symbol ?? 'UNKNOWN',
+        name:         p.baseToken.name ?? 'Unknown',
+        priceUsd:     parseFloat(p.priceUsd ?? 0),
+        liquidityUsd: p.liquidity?.usd ?? 0,
+        marketCapUsd: p.fdv ?? p.marketCap ?? 0,
+        createdAt:    p.pairCreatedAt,
+        devWallet:    '',
+        insiderRatio: 0,
+        bundleRatio:  0,
+        top10Pct:     0,
+        lpBurned:     false,
+        renounced:    false,
+        honeypot:     false,
+      }));
+  } catch (e: any) {
+    console.error('[DexScreener] getNewPairs error:', e.message);
+    return [];
+  }
+}
