@@ -1,39 +1,49 @@
 import axios from 'axios';
-import { getTokenPrice } from './helius';
+import { getTokenPrice, getTokenLiquidity } from './helius';
 import { filterToken } from './rug-filter';
 import { executePaperBuy, checkExitConditions } from './paper-trade';
 import { insertSignal, upsertToken } from './supabase';
 import { notifySignal, notifyError } from './discord';
+import { CONFIG } from './config';
 
 const WALLET_ID = 1;
+const key = process.env.HELIUS_API_KEY!;
+const BASE = 'https://api.helius.xyz/v0';
+const PUMP_PROGRAM = CONFIG.sniper.pumpFunProgram;
 
-// pump.fun public API — real-time, works from datacenter IPs
-async function getPumpFunNewTokens(sinceMs: number) {
+// Query Helius for recent pump.fun program transactions (no type filter = all txns)
+async function getRecentPumpTokens(since: number): Promise<Array<{
+  mint: string; name: string; symbol: string; devWallet: string; timestamp: number;
+}>> {
   try {
-    const { data } = await axios.get('https://frontend-api.pump.fun/coins', {
-      params: { sort: 'created_timestamp', order: 'DESC', limit: 50 },
-      headers: { 'Accept': 'application/json' },
-      timeout: 10000,
-    });
-    const coins = Array.isArray(data) ? data : [];
-    return coins
-      .filter((c: any) => (c.created_timestamp * 1000) >= sinceMs)
-      .map((c: any) => ({
-        mint:         c.mint,
-        symbol:       c.symbol ?? 'UNKNOWN',
-        name:         c.name ?? 'Unknown',
-        priceUsd:     parseFloat(c.usd_market_cap ?? 0) / Math.max(1, parseFloat(c.total_supply ?? 1e9)),
-        liquidityUsd: parseFloat(c.virtual_sol_reserves ?? 0) * 150, // approx
-        marketCapUsd: parseFloat(c.usd_market_cap ?? 0),
-        createdAt:    (c.created_timestamp ?? 0) * 1000,
-        devWallet:    c.creator ?? '',
-        insiderRatio: 0,
-        lpBurned:     false,
-        renounced:    false,
-        honeypot:     false,
-      }));
+    const { data } = await axios.get(
+      `${BASE}/addresses/${PUMP_PROGRAM}/transactions`,
+      { params: { 'api-key': key, limit: 100 }, timeout: 15000 }
+    );
+    const seen = new Set<string>();
+    const results: any[] = [];
+    for (const tx of data ?? []) {
+      const tsMs = (tx.timestamp ?? 0) * 1000;
+      if (tsMs < since) continue;
+      // Look for token transfers that initialise a new mint
+      const transfers = tx.tokenTransfers ?? [];
+      for (const tr of transfers) {
+        const mint = tr.mint;
+        if (!mint || seen.has(mint)) continue;
+        seen.add(mint);
+        results.push({
+          mint,
+          name:      tx.description ?? 'Unknown',
+          symbol:    tr.symbol ?? 'NEW',
+          devWallet: tx.feePayer ?? '',
+          timestamp: tsMs,
+        });
+      }
+    }
+    console.log(`[Sniper] Helius returned ${data?.length ?? 0} txns → ${results.length} unique token mints`);
+    return results;
   } catch (e: any) {
-    console.error('[PumpFun] API error:', e.message);
+    console.error('[Sniper] Helius fetch error:', e.message);
     return [];
   }
 }
@@ -41,20 +51,20 @@ async function getPumpFunNewTokens(sinceMs: number) {
 async function main() {
   console.log(`[Sniper] Starting scan at ${new Date().toISOString()}`);
 
-  // Look back 6 min to cover the 5-min cron interval with overlap
-  const since = Date.now() - 360_000;
-  const newTokens = await getPumpFunNewTokens(since);
-  console.log(`[Sniper] Found ${newTokens.length} new tokens via pump.fun API`);
+  // 10-min window to ensure we don't miss tokens between 5-min cron runs
+  const since = Date.now() - 600_000;
+  const newTokens = await getRecentPumpTokens(since);
+  console.log(`[Sniper] Processing ${newTokens.length} tokens`);
 
   for (const token of newTokens) {
-    if (!token.mint) continue;
+    const ageSeconds = (Date.now() - token.timestamp) / 1000;
 
-    if (token.liquidityUsd < 3000) {
-      console.log(`[Sniper] ${token.symbol} — low liquidity $${token.liquidityUsd.toFixed(0)}, skip`);
+    // Quick liquidity check via DexScreener (already works from GH Actions)
+    const liqUsd = await getTokenLiquidity(token.mint);
+    if (liqUsd < 3000) {
+      console.log(`[Sniper] ${token.symbol} — low liquidity $${liqUsd.toFixed(0)}, skip`);
       continue;
     }
-
-    const ageSeconds = (Date.now() - token.createdAt) / 1000;
 
     const filter = await filterToken({
       mint:      token.mint,
@@ -79,8 +89,7 @@ async function main() {
       pumpFun:      true,
       devWallet:    token.devWallet,
       rugScore:     filter.rugScore,
-      liquidityUsd: token.liquidityUsd,
-      marketCapUsd: token.marketCapUsd,
+      liquidityUsd: liqUsd,
     });
 
     const confidence = Math.min(0.95, filter.gemini?.confidence ?? 0.5);
@@ -90,20 +99,21 @@ async function main() {
       tokenMint:      token.mint,
       signalType:     'buy',
       confidence,
-      source:         `pump.fun | liq:$${Math.round(token.liquidityUsd)}`,
+      source:         `pump.fun | liq:$${Math.round(liqUsd)}`,
       rugScore:       filter.rugScore,
       geminiAnalysis: filter.gemini ?? undefined,
     });
 
     await notifySignal(
       { strategy: 'sniper', tokenMint: token.mint, signalType: 'buy', confidence,
-        source: `pump.fun API`, rugScore: filter.rugScore, geminiAnalysis: filter.gemini ?? undefined },
-      `${token.name} ($${token.marketCapUsd.toFixed(0)} mcap)`
+        source: `pump.fun | liq:$${Math.round(liqUsd)}`, rugScore: filter.rugScore,
+        geminiAnalysis: filter.gemini ?? undefined },
+      `${token.name}`
     );
 
-    const price = token.priceUsd > 0 ? token.priceUsd : await getTokenPrice(token.mint);
+    const price = await getTokenPrice(token.mint);
     if (price <= 0) {
-      console.log(`[Sniper] Could not get price for ${token.symbol}, skipping`);
+      console.log(`[Sniper] No price for ${token.symbol}, skip`);
       continue;
     }
 
