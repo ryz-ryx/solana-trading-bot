@@ -43,7 +43,7 @@ export const CONFIG = {
     takeProfitLevels:    [2.0, 5.0, 10.0],
     takeProfitSellPct:   [0.33, 0.33, 0.34],
     maxDailyLossPct:     0.10,
-    minTokenAgeSecs:     10,
+    minTokenAgeSecs:     5,
     hardStopPct:         0.10,
     trailActivatePct:    0.25,
     trailPct:            0.08,
@@ -54,7 +54,7 @@ export const CONFIG = {
     pumpFunProgram: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
     maxRugScore:    85,
     minLiquidityUsd: 0,
-    maxTokenAgeSecs: 120,
+    maxTokenAgeSecs: 600,
   },
   copyTrade: {
     targetWallets:    optional_env('COPY_WALLETS').split(',').filter(Boolean),
