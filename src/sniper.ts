@@ -150,7 +150,7 @@ async function runLoop() {
   const end = Date.now() + 6 * 60 * 60 * 1000;
   while (Date.now() < end) {
     await main();
-    const wait = Math.min(300_000, end - Date.now());
+    const wait = Math.min(30_000, end - Date.now());
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
 }
