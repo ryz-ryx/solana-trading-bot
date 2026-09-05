@@ -41,9 +41,15 @@ export async function executePaperBuy(params: {
     return { success: false, reason: 'Already holding this token' };
   }
 
-  // Position sizing: scale with confidence, max 3% of capital
-  const positionPct = CONFIG.trading.maxPositionPct * confidence;
-  const amountSol = CONFIG.trading.startingCapitalSol * positionPct;
+  // Max open positions cap
+  if (positions.length >= CONFIG.trading.maxOpenPositions) {
+    return { success: false, reason: `Max positions reached: ${positions.length}` };
+  }
+
+  // Fixed position size: 0.05 SOL flat
+  const amountSol = CONFIG.trading.fixedPositionSol;
+
+
 
   // Apply slippage
   const slippagePct = simulateSlippage();
@@ -167,6 +173,22 @@ export async function checkExitConditions(
         reason: 'stop_loss',
       });
       continue;
+    }
+
+    // Time-based exit: sell if not +15% within 120s of buy
+    if (pos.updatedAt) {
+      const ageSecs = (Date.now() - new Date(pos.updatedAt).getTime()) / 1000;
+      if (ageSecs > CONFIG.trading.timeExitSecs && pnlPct < CONFIG.trading.timeExitMinGainPct * 100) {
+        console.log(`[W${walletId}] TIME EXIT ${pos.tokenSymbol}: ${ageSecs.toFixed(0)}s old, ${pnlPct.toFixed(1)}%`);
+        await executePaperSell({
+          walletId, strategy,
+          tokenMint: pos.tokenMint,
+          tokenSymbol: pos.tokenSymbol,
+          currentPriceSol: currentPrice,
+          reason: 'time_exit',
+        });
+        continue;
+      }
     }
 
     // Take profit levels

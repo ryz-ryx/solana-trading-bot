@@ -35,6 +35,10 @@ export const CONFIG = {
   trading: {
     startingCapitalSol:  10,
     maxPositionPct:      0.03,
+    fixedPositionSol:    0.05,
+    maxOpenPositions:    3,
+    timeExitSecs:        120,
+    timeExitMinGainPct:  0.15,
     stopLossPct:         0.20,
     takeProfitLevels:    [2.0, 5.0, 10.0],
     takeProfitSellPct:   [0.33, 0.33, 0.34],

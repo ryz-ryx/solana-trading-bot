@@ -69,6 +69,7 @@ export async function getOpenPositions(walletId: number): Promise<PortfolioPosit
     tokenSymbol: r.token_symbol,
     amount: r.amount,
     avgEntrySol: r.avg_entry_sol,
+    updatedAt: r.updated_at,
   }));
 }
 

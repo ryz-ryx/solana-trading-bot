@@ -47,6 +47,7 @@ export interface PortfolioPosition {
   tokenSymbol: string;
   amount: number;
   avgEntrySol: number;
+  updatedAt?: string;
 }
 
 export interface GeminiAnalysis {
