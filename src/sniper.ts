@@ -131,7 +131,16 @@ async function main() {
   console.log('[Sniper] Scan complete');
 }
 
-main().catch(async (err) => {
+async function runLoop() {
+  const end = Date.now() + 6 * 60 * 60 * 1000;
+  while (Date.now() < end) {
+    await main();
+    const wait = Math.min(300_000, end - Date.now());
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  }
+}
+
+runLoop().catch(async (err) => {
   console.error('[Sniper] Fatal error:', err);
   await notifyError('Sniper', err.message);
   process.exit(1);

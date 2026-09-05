@@ -2,7 +2,7 @@ name: Sniper
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # Every 5 minutes
+    - cron: '0 */6 * * *'   # Every 5 minutes
   repository_dispatch:
     types: [new-pump-token]  # Helius webhook trigger
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 jobs:
   snipe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -2,13 +2,13 @@ name: KOL Tracker
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
   track:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
