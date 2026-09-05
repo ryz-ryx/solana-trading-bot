@@ -7,6 +7,10 @@ function require_env(key: string): string {
   return val;
 }
 
+function optional_env(key: string, fallback = ''): string {
+  return process.env[key] ?? fallback;
+}
+
 export const CONFIG = {
   helius: {
     apiKey: require_env('HELIUS_API_KEY'),
@@ -25,53 +29,32 @@ export const CONFIG = {
     model:  'gemini-1.5-flash',
   },
   wallets: {
-    // Wallet roles: 1=sniper, 2=copy-trade, 3=kol, 4=reserve
-    privateKeys: [
-      require_env('WALLET1'),
-      require_env('WALLET2'),
-      require_env('WALLET3'),
-      require_env('WALLET4'),
-    ],
+    // Each workflow only passes the wallet it needs — no hard require at load time
+    get: (n: 1 | 2 | 3 | 4): string => require_env(`WALLET${n}`),
   },
   trading: {
-    // Paper trading capital per wallet (SOL) — simulated
-    startingCapitalSol: 10,
-    // Max position size as % of wallet
-    maxPositionPct: 0.03,      // 3% per trade
-    // Stop loss %
-    stopLossPct: 0.20,         // -20%
-    // Take profit levels
-    takeProfitLevels: [2.0, 5.0, 10.0], // 2x, 5x, 10x
-    // Sell % at each take profit
-    takeProfitSellPct: [0.33, 0.33, 0.34],
-    // Max daily loss before pausing
-    maxDailyLossPct: 0.10,     // -10% of wallet
-    // Slippage model for meme coins
-    slippageMin: 0.05,
-    slippageMax: 0.15,
+    startingCapitalSol:  10,
+    maxPositionPct:      0.03,
+    stopLossPct:         0.20,
+    takeProfitLevels:    [2.0, 5.0, 10.0],
+    takeProfitSellPct:   [0.33, 0.33, 0.34],
+    maxDailyLossPct:     0.10,
+    slippageMin:         0.05,
+    slippageMax:         0.15,
   },
   sniper: {
-    // pump.fun program ID
     pumpFunProgram: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
-    // Max rug score to consider buying
-    maxRugScore: 40,
-    // Min initial liquidity USD
+    maxRugScore:    40,
     minLiquidityUsd: 5000,
-    // Max token age in seconds to still snipe
     maxTokenAgeSecs: 120,
   },
   copyTrade: {
-    // Target wallets to copy — add addresses here after research
-    targetWallets: (process.env.COPY_WALLETS || '').split(',').filter(Boolean),
-    // Delay after detecting trade (ms) — simulates realistic execution
+    targetWallets:    optional_env('COPY_WALLETS').split(',').filter(Boolean),
     executionDelayMs: 2000,
-    // Only copy if position size > X SOL
-    minPositionSol: 0.1,
+    minPositionSol:   0.1,
   },
   kol: {
-    // Twitter handles to track — no @ prefix
-    handles: (process.env.KOL_HANDLES || '').split(',').filter(Boolean),
-    // Nitter instances for scraping (no API needed)
+    handles: optional_env('KOL_HANDLES').split(',').filter(Boolean),
     nitterInstances: [
       'https://nitter.privacydev.net',
       'https://nitter.poast.org',
