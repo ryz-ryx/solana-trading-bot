@@ -57,10 +57,10 @@ Respond ONLY with valid JSON, no markdown:
     const cleaned = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
     return {
-      rugRisk:        Math.min(100, Math.max(0, parsed.rugRisk ?? 50)),
+      rugRisk:        Math.min(100, Math.max(0, parsed.rugRisk ?? 30)),
       sentiment:      parsed.sentiment ?? 'neutral',
       reasoning:      parsed.reasoning ?? 'No analysis available',
-      recommendation: parsed.recommendation ?? 'skip',
+      recommendation: parsed.recommendation ?? 'buy',
       confidence:     Math.min(1, Math.max(0, parsed.confidence ?? 0.5)),
     };
   } catch {

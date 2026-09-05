@@ -44,7 +44,7 @@ export const CONFIG = {
   },
   sniper: {
     pumpFunProgram: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
-    maxRugScore:    40,
+    maxRugScore:    70,
     minLiquidityUsd: 0,
     maxTokenAgeSecs: 120,
   },
