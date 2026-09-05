@@ -64,7 +64,7 @@ Respond ONLY with valid JSON, no markdown:
       confidence:     Math.min(1, Math.max(0, parsed.confidence ?? 0.5)),
     };
   } catch {
-    return { rugRisk: 80, sentiment: 'neutral', reasoning: 'Analysis failed', recommendation: 'skip', confidence: 0 };
+    return { rugRisk: 40, sentiment: 'neutral', reasoning: 'Gemini unavailable', recommendation: 'buy', confidence: 0.5 };
   }
 }
 
