@@ -26,7 +26,7 @@ export const CONFIG = {
   },
   gemini: {
     apiKey: require_env('GEMINI_API_KEY'),
-    model:  'gemini-2.0-flash',
+    model:  'gemini-2.5-flash',
   },
   wallets: {
     // Each workflow only passes the wallet it needs — no hard require at load time
@@ -45,7 +45,7 @@ export const CONFIG = {
   sniper: {
     pumpFunProgram: '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
     maxRugScore:    40,
-    minLiquidityUsd: 5000,
+    minLiquidityUsd: 0,
     maxTokenAgeSecs: 120,
   },
   copyTrade: {
